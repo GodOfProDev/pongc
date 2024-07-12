@@ -1,6 +1,7 @@
 #include <SDL2/SDL.h>
 
 #include <stdio.h>
+#include <stdbool.h>
 
 typedef struct {
     int x;
@@ -53,14 +54,12 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    puts("1");
-
     SDL_Event e;
     while (gState->isRunning) {
-        while (SDL_PollEvent(&e)) {
+        while (SDL_PollEvent(&e) != 0) {
             if (e.type == SDL_QUIT) {
                 gState->isRunning = false;
-            } /*else if (e.type == SDL_KEYDOWN) {
+            } else if (e.type == SDL_KEYDOWN) {
                 switch (e.key.keysym.sym) {
                     case SDLK_w:
                         break;
@@ -73,7 +72,11 @@ int main(int argc, char **argv) {
                     default:
                         break;
                 }
-            }*/
+            }
+        }
+
+        if (gState->renderer == NULL) {
+            continue;
         }
 
         SDL_SetRenderDrawColor(gState->renderer, 0x00, 0x00, 0x00, 0xFF);
@@ -85,11 +88,7 @@ int main(int argc, char **argv) {
         SDL_RenderPresent(gState->renderer);
     }
 
-    puts("2");
-
     cleanup();
-
-    puts("3");
 
     return 0;
 }
@@ -129,7 +128,8 @@ void cleanup() {
 }
 
 State *create_state(SDL_Window *window, SDL_Renderer *render) {
-    State *state = malloc(sizeof(state));
+    State *state = malloc(sizeof(State));
+
     state->window = window;
     state->renderer = render;
     state->isRunning = true;
