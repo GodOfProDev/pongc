@@ -33,9 +33,13 @@ typedef struct {
 } State;
 
 bool init();
+
 void cleanup();
+
 State *create_state(SDL_Window *window, SDL_Renderer *render);
+
 void renderPaddles();
+
 void renderBall();
 
 const int SCREEN_WIDTH = 640;
@@ -96,7 +100,8 @@ bool init() {
         return false;
     }
 
-    SDL_Window *window = SDL_CreateWindow("Pong", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+    SDL_Window *window = SDL_CreateWindow("Pong", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH,
+                                          SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
     if (window == NULL) {
         printf("Failed to initialize the Window! SDL_Error: %s\n", SDL_GetError());
         return false;
@@ -173,5 +178,4 @@ void renderPaddles() {
 }
 
 void renderBall() {
-
 }
