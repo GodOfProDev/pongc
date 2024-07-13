@@ -43,6 +43,8 @@ void renderPaddles();
 
 void renderBall();
 
+void handlePlayerInput(SDL_KeyCode key);
+
 const int SCREEN_WIDTH = 640;
 const int SCREEN_HEIGHT = 480;
 
@@ -60,18 +62,7 @@ int main(int argc, char **argv) {
             if (e.type == SDL_QUIT) {
                 gState->isRunning = false;
             } else if (e.type == SDL_KEYDOWN) {
-                switch (e.key.keysym.sym) {
-                    case SDLK_w:
-                        break;
-                    case SDLK_s:
-                        break;
-                    case SDLK_UP:
-                        break;
-                    case SDLK_DOWN:
-                        break;
-                    default:
-                        break;
-                }
+                handlePlayerInput(e.key.keysym.sym);
             }
         }
 
@@ -145,7 +136,7 @@ State *create_state(SDL_Window *window, SDL_Renderer *render) {
     p2.width = 10;
     p2.height = 165;
     p2.pos.y = (SCREEN_HEIGHT / 2.0) - (p2.height / 2.0);
-    p2.pos.x = SCREEN_WIDTH - (p2.width + 16);
+    p2.pos.x = SCREEN_WIDTH - (p2.width + 32);
     p2.speed = 10;
 
     state->p1 = p1;
@@ -178,4 +169,49 @@ void renderPaddles() {
 }
 
 void renderBall() {
+}
+
+void handlePlayerInput(SDL_KeyCode key) {
+    Paddle p1;
+    Paddle p2;
+    bool isP1 = false;;
+    switch (key) {
+        case SDLK_w:
+            p1 = gState->p1;
+            p1.pos.y -= p1.speed;
+            isP1 = true;
+            break;
+        case SDLK_s:
+            p1 = gState->p1;
+            p1.pos.y += p1.speed;
+            isP1 = true;
+            break;
+        case SDLK_UP:
+            p2 = gState->p2;
+            p2.pos.y -= p2.speed;
+            break;
+        case SDLK_DOWN:
+            p2 = gState->p2;
+            p2.pos.y += p2.speed;
+            break;
+        default:
+            return;
+            break;
+    }
+
+    if (isP1) {
+        if (p1.pos.y < 0) {
+            p1.pos.y += p1.speed;
+        } else if (p1.pos.y + p1.height > SCREEN_HEIGHT) {
+            p1.pos.y -= p1.speed;
+        }
+        gState->p1 = p1;
+    } else {
+        if (p2.pos.y < 0) {
+            p2.pos.y += p2.speed;
+        } else if (p2.pos.y + p2.height > SCREEN_HEIGHT) {
+            p2.pos.y -= p2.speed;
+        }
+        gState->p2 = p2;
+    }
 }
