@@ -2,10 +2,11 @@
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <time.h>
 
 typedef struct {
-    int x;
-    int y;
+    float x;
+    float y;
 } Point2D;
 
 typedef struct {
@@ -29,6 +30,9 @@ typedef struct {
     Paddle p1;
     Paddle p2;
     Ball ball;
+
+    int p1Score;
+    int p2Score;
 
     bool isRunning;
 } GameState;
@@ -57,6 +61,11 @@ void drawCircle(SDL_Renderer *renderer, int centerX, int centerY, float radius);
 
 bool checkCollision(Paddle *p, Ball *b);
 
+void checkBoundaries();
+
+Point2D getPaddleNormal(Paddle paddle, bool leftSide);
+Point2D reflect(Point2D vec, Point2D normal);
+
 void updateBall();
 
 const int SCREEN_WIDTH = 640;
@@ -71,6 +80,8 @@ int main(int argc, char **argv) {
         printf("Failed to initialize the game!\n");
         return -1;
     }
+
+    srand(time(NULL));
 
     while (gState->isRunning) {
         int startTicks = SDL_GetTicks();
@@ -110,6 +121,9 @@ bool init() {
     }
 
     gState = create_state(window, renderer);
+
+    gState->p1Score = 0;
+    gState->p2Score = 0;
 
     return true;
 }
@@ -198,6 +212,18 @@ void handlePlayerInput(SDL_KeyCode key) {
             return;
     }
 
+    if (p1.pos.y <= 0) {
+        p1.pos.y += p1.speed;
+    } else if (p1.pos.y + p1.height >= SCREEN_HEIGHT) {
+        p1.pos.y -= p1.speed;
+    }
+
+    if (p2.pos.y <= 0) {
+        p2.pos.y += p2.speed;
+    } else if (p2.pos.y + p2.height >= SCREEN_HEIGHT) {
+        p2.pos.y -= p2.speed;
+    }
+
     gState->p1 = p1;
     gState->p2 = p2;
 }
@@ -215,22 +241,23 @@ void drawCircle(SDL_Renderer *renderer, int centerX, int centerY, float radius) 
 }
 
 void updateBall() {
-    Ball ball = gState->ball;
+    Ball *ball = &gState->ball;
     Paddle p1 = gState->p1;
     Paddle p2 = gState->p2;
 
-    ball.pos.x += ball.speed * ball.dir.x;
-    ball.pos.y += ball.speed * ball.dir.y;
+    checkBoundaries();
 
-    if (checkCollision(&p1, &ball)) {
-        ball.dir.x = 1;
-        ball.dir.y = 0.25;
-    } else if (checkCollision(&p2, &ball)) {
-        ball.dir.x = -1;
-        ball.dir.y = -0.25;
+    ball->pos.x += ball->speed * ball->dir.x;
+    ball->pos.y += ball->speed * ball->dir.y;
+
+    if (checkCollision(&p1, ball)) {
+        Point2D normal = getPaddleNormal(p1, true);
+        ball->dir = reflect(ball->dir, normal);
+    } else if (checkCollision(&p2, ball)) {
+        Point2D normal = getPaddleNormal(p2, false);
+        ball->dir = reflect(ball->dir, normal);
     }
 
-    gState->ball = ball;
 }
 
 bool checkCollision(Paddle *p, Ball *b) {
@@ -272,14 +299,62 @@ void initPaddles(GameState *state) {
 
 void initBall(GameState *state) {
     Ball ball = {
-        .radius = 13,
-        .speed = 2,
+        .radius = 7,
+        .speed = 4,
     };
 
     ball.pos.x = (SCREEN_WIDTH / 2.0);
     ball.pos.y = (SCREEN_HEIGHT / 2.0);
-    ball.dir.x = -1;
-    ball.dir.y = 0;
+
+    // Ensure the initial direction is normalized
+    float angle = ((float)rand() / RAND_MAX) * 2 * M_PI;
+    ball.dir.x = cosf(angle);
+    ball.dir.y = sinf(angle);
 
     state->ball = ball;
+}
+
+Point2D getPaddleNormal(Paddle paddle, bool leftSide) {
+    Point2D normal;
+    if (leftSide) {
+        normal.x = -1.0f;
+        normal.y = 0.0f;
+    } else {
+        normal.x = 1.0f;
+        normal.y = 0.0f;
+    }
+    return normal;
+}
+
+Point2D reflect(Point2D vec, Point2D normal) {
+    float dot = vec.x * normal.x + vec.y * normal.y;
+    Point2D r = {
+        vec.x - 2 * dot * normal.x,
+        vec.y - 2 * dot * normal.y
+    };
+    return r;
+}
+
+void checkBoundaries() {
+    Ball ball = gState->ball;
+    Point2D pos = ball.pos;
+
+    if (pos.y <= 0 || pos.y + ball.radius >= SCREEN_HEIGHT) {
+        ball.dir.y *= -1;
+        gState->ball = ball;
+    }
+
+    if (pos.x - ball.radius <= 0) {
+        initBall(gState);
+        initPaddles(gState);
+
+        gState->p2Score++;
+        printf("P1 Score: %i\tP2 Score: %i\n", gState->p1Score, gState->p2Score);
+    } else if (pos.x + ball.radius >= SCREEN_WIDTH) {
+        initBall(gState);
+        initPaddles(gState);
+
+        gState->p1Score++;
+        printf("P1 Score: %i\tP2 Score: %i\n", gState->p1Score, gState->p2Score);
+    }
 }
