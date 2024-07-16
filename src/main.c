@@ -1,360 +1,419 @@
 #include <math.h>
-#include <SDL2/SDL.h>
 #include <stdio.h>
-#include <stdbool.h>
 #include <time.h>
+#include <SDL2/SDL_ttf.h>
+#include <SDL2/SDL.h>
 
 typedef struct {
     float x;
     float y;
-} Point2D;
+} Vector2D;
 
 typedef struct {
-    Point2D pos;
-    int width;
-    int height;
+    Vector2D pos;
+
+    float width;
+    float height;
     float speed;
+    int score;
 } Paddle;
 
 typedef struct {
-    Point2D pos;
-    Point2D dir;
-    float radius;
+    Vector2D pos;
+    Vector2D dir;
     float speed;
+    float radius;
 } Ball;
 
 typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
+    TTF_Font *font;
+    SDL_Texture *font_tex;
+    float font_tex_w;
+    float font_tex_h;
 
     Paddle p1;
     Paddle p2;
+
     Ball ball;
 
-    int p1Score;
-    int p2Score;
-
     bool isRunning;
+    bool hasStarted;
+    bool isPaused;
 } GameState;
 
-bool init();
+#define ERROR_EXIT(...) fprintf(stderr, __VA_ARGS__); return
+#define ERROR_RETURN(R, ...) fprintf(stderr, __VA_ARGS__); return R
 
-void initPaddles(GameState *state);
+#define SCREEN_WIDTH  640
+#define SCREEN_HEIGHT 480
 
-void initBall(GameState *state);
-
-void cleanup();
-
-GameState *create_state(SDL_Window *window, SDL_Renderer *render);
-
-void renderLoop();
-
-void renderPaddles();
-
-void renderBall();
-
-void handleEvents();
-
-void handlePlayerInput(SDL_KeyCode key);
-
-void drawCircle(SDL_Renderer *renderer, int centerX, int centerY, float radius);
-
-bool checkCollision(Paddle *p, Ball *b);
-
-void checkBoundaries();
-
-Point2D getPaddleNormal(Paddle paddle, bool leftSide);
-Point2D reflect(Point2D vec, Point2D normal);
-
-void updateBall();
-
-const int SCREEN_WIDTH = 640;
-const int SCREEN_HEIGHT = 480;
-const int SCREEN_FPS = 60;
-const int SCREEN_TICKS_PER_FRAME = 1000 / SCREEN_FPS;
+#define PADDLE_WIDTH 10
+#define PADDLE_HEIGHT 125
+#define BALL_RADIUS 15
+#define PADDLE_SPEED 300
+#define BALL_SPEED 225
 
 GameState *gState = NULL;
 
+bool init();
+void init_game_state(SDL_Window *window, SDL_Renderer *renderer);
+
+void reset_paddles(bool keep_score);
+void reset_ball();
+void set_scores_text();
+
+void handle_events(float dt);
+void update_game(float dt, float total_time);
+void render();
+
+void handle_player_tnput(float dt);
+
+void animate_ball(float total_time);
+void set_random_dir_ball(bool is_global_state, Ball *ball);
+
+bool check_collision(Ball *ball, Paddle *p, bool is_left_side);
+Vector2D get_paddle_normal( bool is_left_side);
+Vector2D reflect_vec(Vector2D vec, Vector2D normal);
+Vector2D find_vec_between_two_pos(Vector2D pos1, Vector2D po2);
+
+void cleanup();
+
 int main(int argc, char **argv) {
     if (!init()) {
-        printf("Failed to initialize the game!\n");
-        return -1;
+        ERROR_RETURN(-1, "Failed to init SDL2\n");
     }
 
-    srand(time(NULL));
-
+    uint32_t current_time, last_time = 0;
+    float delta_time;
+    float total_time = 0;
     while (gState->isRunning) {
-        int startTicks = SDL_GetTicks();
+        current_time = SDL_GetTicks();
+        delta_time = (current_time - last_time) / 1000.0f;
+        last_time = current_time;
+        total_time += delta_time;
 
-        handleEvents();
-        updateBall();
-        renderLoop();
-
-        int delta = SDL_GetTicks() - startTicks;
-        if (delta < SCREEN_TICKS_PER_FRAME) {
-            SDL_Delay(SCREEN_TICKS_PER_FRAME - delta);
-        }
+        handle_events(delta_time);
+        handle_player_tnput(delta_time);
+        update_game(delta_time, total_time);
+        render();
     }
 
     cleanup();
-
     return 0;
 }
 
 bool init() {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        printf("Failed to initialize SDL! SDL_Error: %s\n", SDL_GetError());
-        return false;
+        ERROR_RETURN(false, "Failed to init SDL Video\n");
     }
 
-    SDL_Window *window = SDL_CreateWindow("Pong", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH,
-                                          SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+    if (TTF_Init() == -1) {
+        ERROR_RETURN(false, "Failed to init SDL_ttf\n");
+    }
+
+    SDL_Window *window = SDL_CreateWindow("Pong", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
     if (window == NULL) {
-        printf("Failed to initialize the Window! SDL_Error: %s\n", SDL_GetError());
-        return false;
+        ERROR_RETURN(false, "Failed to create a window!\n");
     }
 
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (renderer == NULL) {
-        printf("Failed to initialize the Renderer! SDL_Error: %s\n", SDL_GetError());
-        return false;
+        ERROR_RETURN(false, "Failed to create the renderer!\n");
     }
 
-    gState = create_state(window, renderer);
+    TTF_Font* font = TTF_OpenFont("../res/font.ttf", 24); // 24 is the font size
+    if (font == NULL) {
+        ERROR_RETURN(false, "Failed to load the font!\n");
+    }
 
-    gState->p1Score = 0;
-    gState->p2Score = 0;
+    srand(time(NULL));
+    init_game_state(window, renderer);
+
+    gState->font = font;
+    set_scores_text();
 
     return true;
 }
 
-void cleanup() {
-    SDL_DestroyRenderer(gState->renderer);
-    SDL_DestroyWindow(gState->window);
-
-    gState->renderer = NULL;
-    gState->window = NULL;
-
-    SDL_Quit();
-}
-
-GameState *create_state(SDL_Window *window, SDL_Renderer *render) {
+void init_game_state(SDL_Window *window, SDL_Renderer *renderer) {
     GameState *state = malloc(sizeof(GameState));
 
     state->window = window;
-    state->renderer = render;
+    state->renderer = renderer;
     state->isRunning = true;
+    state->hasStarted = false;
 
-    initPaddles(state);
-    initBall(state);
+    gState = state;
 
-    return state;
+    reset_paddles(false);
+    reset_ball();
 }
 
-void renderLoop() {
-    SDL_SetRenderDrawColor(gState->renderer, 0x00, 0x00, 0x00, 0xFF);
-    SDL_RenderClear(gState->renderer);
+void reset_paddles(bool keep_score) {
+    Paddle p1 = {
+        .pos = {
+            .x = PADDLE_WIDTH + 16,
+            .y = (SCREEN_HEIGHT / 2.0) - (PADDLE_HEIGHT / 2.0)
+        },
+        .width = PADDLE_WIDTH,
+        .height = PADDLE_HEIGHT,
+        .speed = PADDLE_SPEED,
+    };
 
-    renderBall();
-    renderPaddles();
+    Paddle p2 = {
+        .pos = {
+            .x = SCREEN_WIDTH - PADDLE_WIDTH - 16,
+            .y = (SCREEN_HEIGHT / 2.0) - (PADDLE_HEIGHT / 2.0)
+        },
+        .width = PADDLE_WIDTH,
+        .height = PADDLE_HEIGHT,
+        .speed = PADDLE_SPEED
+    };
 
-    SDL_RenderPresent(gState->renderer);
-}
-
-void renderPaddles() {
-    SDL_SetRenderDrawColor(gState->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
-
-    Paddle p1 = gState->p1;
-    Paddle p2 = gState->p2;
-
-    SDL_Rect p1_rect = {p1.pos.x, p1.pos.y, p1.width, p1.height};
-    SDL_RenderFillRect(gState->renderer, &p1_rect);
-
-    SDL_Rect p2_rect = {p2.pos.x, p2.pos.y, p2.width, p2.height};
-    SDL_RenderFillRect(gState->renderer, &p2_rect);
-}
-
-void renderBall() {
-    SDL_SetRenderDrawColor(gState->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
-    Ball ball = gState->ball;
-    drawCircle(gState->renderer, ball.pos.x, ball.pos.y, ball.radius);
-}
-
-void handleEvents() {
-    SDL_Event e;
-    while (SDL_PollEvent(&e) != 0) {
-        if (e.type == SDL_QUIT) {
-            gState->isRunning = false;
-        } else if (e.type == SDL_KEYDOWN) {
-            handlePlayerInput(e.key.keysym.sym);
-        }
-    }
-}
-
-void handlePlayerInput(SDL_KeyCode key) {
-    Paddle p1 = gState->p1;
-    Paddle p2 = gState->p2;
-    switch (key) {
-        case SDLK_w:
-            p1.pos.y -= p1.speed;
-            break;
-        case SDLK_s:
-            p1.pos.y += p1.speed;
-            break;
-
-        case SDLK_UP:
-            p2.pos.y -= p2.speed;
-            break;
-        case SDLK_DOWN:
-            p2.pos.y += p2.speed;
-            break;
-        default:
-            return;
-    }
-
-    if (p1.pos.y <= 0) {
-        p1.pos.y += p1.speed;
-    } else if (p1.pos.y + p1.height >= SCREEN_HEIGHT) {
-        p1.pos.y -= p1.speed;
-    }
-
-    if (p2.pos.y <= 0) {
-        p2.pos.y += p2.speed;
-    } else if (p2.pos.y + p2.height >= SCREEN_HEIGHT) {
-        p2.pos.y -= p2.speed;
+    if (keep_score) {
+        p1.score = gState->p1.score;
+        p2.score = gState->p2.score;
     }
 
     gState->p1 = p1;
     gState->p2 = p2;
 }
 
-void drawCircle(SDL_Renderer *renderer, int centerX, int centerY, float radius) {
-    for (int x = centerX - radius; x <= centerX + radius; x++) {
-        for (int y = centerY - radius; y <= centerY + radius; y++) {
-            int dx = x - centerX;
-            int dy = y - centerY;
-            if ((dx * dx + dy * dy) <= (radius * radius)) {
-                SDL_RenderDrawPoint(renderer, x, y);
+void reset_ball() {
+    Ball ball = {
+        .pos = {
+            .x = SCREEN_WIDTH / 2.0,
+            .y = (SCREEN_HEIGHT / 2.0 + BALL_RADIUS / 2.0)
+        },
+        .speed = BALL_SPEED,
+        .radius = BALL_RADIUS
+    };
+    set_random_dir_ball(false, &ball);
+
+    gState->ball = ball;
+}
+
+void handle_events(float dt) {
+    SDL_Event e;
+    while (SDL_PollEvent(&e) != 0) {
+        if (e.type == SDL_QUIT) {
+            gState->isRunning = false;
+        }
+        if (e.type == SDL_KEYDOWN) {
+            if (e.key.keysym.sym == SDLK_SPACE && !gState->hasStarted) {
+                gState->hasStarted = true;
+                set_random_dir_ball(true, NULL);
             }
         }
     }
 }
 
-void updateBall() {
-    Ball *ball = &gState->ball;
+void update_game(float dt, float total_time) {
+    // Animate Ball
+    if (!gState->hasStarted) {
+        animate_ball(total_time);
+        return;
+    }
+
+    // Move ball
+    Ball ball = gState->ball;
     Paddle p1 = gState->p1;
     Paddle p2 = gState->p2;
 
-    checkBoundaries();
+    ball.pos.x += ball.dir.x * ball.speed * dt;
+    ball.pos.y += ball.dir.y * ball.speed * dt;
 
-    ball->pos.x += ball->speed * ball->dir.x;
-    ball->pos.y += ball->speed * ball->dir.y;
-
-    if (checkCollision(&p1, ball)) {
-        Point2D normal = getPaddleNormal(p1, true);
-        ball->dir = reflect(ball->dir, normal);
-    } else if (checkCollision(&p2, ball)) {
-        Point2D normal = getPaddleNormal(p2, false);
-        ball->dir = reflect(ball->dir, normal);
+    if (ball.pos.x <= 0) {
+        gState->p2.score++;
+        set_scores_text();
+        reset_paddles(true);
+        reset_ball();
+        gState->hasStarted = false;
+        return;
+    }
+    if (ball.pos.x >= SCREEN_WIDTH - BALL_RADIUS) {
+        gState->p1.score++;
+        set_scores_text();
+        reset_paddles(true);
+        reset_ball();
+        gState->hasStarted = false;
+        return;
     }
 
+    if (ball.pos.y <= 0 || ball.pos.y >= SCREEN_HEIGHT - BALL_RADIUS) {
+        ball.dir.y *= -1;
+    }
+
+    // Check paddle collision
+    if (check_collision(&ball, &p1, true)) {
+        Vector2D normal = get_paddle_normal(true);
+        ball.dir = reflect_vec(ball.dir, normal);
+    }
+    if (check_collision(&ball, &p2, false)) {
+        Vector2D normal = get_paddle_normal(false);
+        ball.dir = reflect_vec(ball.dir, normal);
+    }
+
+    gState->ball = ball;
 }
 
-bool checkCollision(Paddle *p, Ball *b) {
-    // Find the closest point on the paddle to the center of the ball
-    float closestX = fmaxf(p->pos.x, fminf(b->pos.x, p->pos.x + p->width));
-    float closestY = fmaxf(p->pos.y, fminf(b->pos.y, p->pos.y + p->height));
+void render() {
+    SDL_Renderer *renderer = gState->renderer;
+    Paddle p1 = gState->p1;
+    Paddle p2 = gState->p2;
+    Ball ball = gState->ball;
 
-    // Calculate the distance between the closest point and the ball's center
-    float distanceX = b->pos.x - closestX;
-    float distanceY = b->pos.y - closestY;
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0xFF);
+    SDL_RenderClear(renderer);
 
-    // Check if the distance is less than the ball's radius
-    float distanceSquared = (distanceX * distanceX) + (distanceY * distanceY);
-    return distanceSquared < (b->radius * b->radius);
+    SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+
+    SDL_Rect p1_rect = {p1.pos.x, p1.pos.y, p1.width, p1.height};
+    SDL_RenderFillRect(renderer, &p1_rect);
+
+    SDL_Rect p2_rect = {p2.pos.x, p2.pos.y, p2.width, p2.height};
+    SDL_RenderFillRect(renderer, &p2_rect);
+
+    SDL_Rect ball_rect = {ball.pos.x, ball.pos.y, ball.radius, ball.radius};
+    SDL_RenderFillRect(renderer, &ball_rect);
+
+    SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+    SDL_Rect messageRect = {(SCREEN_WIDTH) / 2.0 - 24, 16, gState->font_tex_w, gState->font_tex_h};
+    SDL_RenderCopy(renderer, gState->font_tex, NULL, &messageRect);
+
+    SDL_RenderPresent(renderer);
 }
 
-void initPaddles(GameState *state) {
-    Paddle p1 = {
-        .width = 10,
-        .height = 165,
-        .speed = 10
-    };
+void handle_player_tnput(float dt) {
+    Paddle p1 = gState->p1;
+    Paddle p2 = gState->p2;
 
-    p1.pos.y = (SCREEN_HEIGHT / 2.0) - (p1.height / 2.0);
-    p1.pos.x = p1.width + 16;
+    const Uint8 *currentKeyStates = SDL_GetKeyboardState(NULL);
 
-    Paddle p2 = {
-        .width = 10,
-        .height = 165,
-        .speed = 10
-    };
+    if (currentKeyStates[SDL_SCANCODE_W]) {
+            p1.pos.y -= p1.speed * dt;
+    }
+    if (currentKeyStates[SDL_SCANCODE_S]) {
+            p1.pos.y += p1.speed * dt;
+    }
+    if (currentKeyStates[SDL_SCANCODE_UP]) {
+            p2.pos.y -= p2.speed * dt;
+    }
+    if (currentKeyStates[SDL_SCANCODE_DOWN]) {
+            p2.pos.y += p2.speed * dt;
+    }
 
-    p2.pos.y = (SCREEN_HEIGHT / 2.0) - (p2.height / 2.0);
-    p2.pos.x = SCREEN_WIDTH - (p2.width + 32);
+    if (p1.pos.y <= 0) {
+        p1.pos.y += p1.speed * dt;
+    }
+    if (p1.pos.y >= SCREEN_HEIGHT - p1.height) {
+        p1.pos.y -= p1.speed * dt;
+    }
+    if (p2.pos.y <= 0) {
+        p2.pos.y += p2.speed * dt;
+    }
+    if (p2.pos.y >= SCREEN_HEIGHT - p2.height) {
+        p2.pos.y -= p2.speed * dt;
+    }
 
-    state->p1 = p1;
-    state->p2 = p2;
+    gState->p1 = p1;
+    gState->p2 = p2;
 }
 
-void initBall(GameState *state) {
-    Ball ball = {
-        .radius = 7,
-        .speed = 4,
-    };
+void cleanup() {
+    SDL_DestroyWindow(gState->window);
+    gState->window = NULL;
 
-    ball.pos.x = (SCREEN_WIDTH / 2.0);
-    ball.pos.y = (SCREEN_HEIGHT / 2.0);
+    SDL_DestroyRenderer(gState->renderer);
+    gState->renderer = NULL;
 
-    // Ensure the initial direction is normalized
-    float angle = ((float)rand() / RAND_MAX) * 2 * M_PI;
-    ball.dir.x = cosf(angle);
-    ball.dir.y = sinf(angle);
+    SDL_DestroyTexture(gState->font_tex);
+    gState->font_tex = NULL;
 
-    state->ball = ball;
+    free(gState);
+    gState = NULL;
+
+    TTF_Quit();
+    SDL_Quit();
 }
 
-Point2D getPaddleNormal(Paddle paddle, bool leftSide) {
-    Point2D normal;
-    if (leftSide) {
-        normal.x = -1.0f;
-        normal.y = 0.0f;
+void animate_ball(float total_time) {
+    gState->ball.pos.y = (sin(total_time * 2) + 1) / 2 * (SCREEN_HEIGHT - 5 * BALL_RADIUS) + BALL_RADIUS;
+}
+
+void set_random_dir_ball(bool is_global_state, Ball *ball) {
+    float x, y, length;
+
+    x = ((float)rand() / RAND_MAX) - 0.5;
+    y = ((float)rand() / RAND_MAX) - 0.5;
+
+    //Normalize the vector
+    length = sqrt(x*x + y*y);
+    x /= length;
+    y /= length;
+
+   if (!is_global_state) {
+       ball->dir.x = x;
+       ball->dir.y = y;
+   } else {
+       gState->ball.dir.x = x;
+       gState->ball.dir.y = y;
+   }
+}
+
+bool check_collision(Ball *ball, Paddle *p, bool is_left_side) {
+    if (is_left_side) {
+        if (ball->pos.x >= p->pos.x && ball->pos.x <= p->pos.x + p->width &&
+            ball->pos.y >= p->pos.y && ball->pos.y <= p->pos.y + p->height) {
+            return true;
+        }
     } else {
-        normal.x = 1.0f;
-        normal.y = 0.0f;
+        if (ball->pos.x + ball->radius <= p->pos.x + p->width && ball->pos.x + ball->radius >= p->pos.x &&
+            ball->pos.y >= p->pos.y && ball->pos.y <= p->pos.y + p->height) {
+            return true;
+        }
     }
-    return normal;
+
+    return false;
 }
 
-Point2D reflect(Point2D vec, Point2D normal) {
+Vector2D get_paddle_normal(bool is_left_side) {
+    if (is_left_side) {
+        return (Vector2D){.x = 1.0f, .y = 0};
+    }
+    return (Vector2D){.x = -1.0f, .y = 0};
+}
+
+Vector2D reflect_vec(Vector2D vec, Vector2D normal) {
     float dot = vec.x * normal.x + vec.y * normal.y;
-    Point2D r = {
+    Vector2D r = {
         vec.x - 2 * dot * normal.x,
         vec.y - 2 * dot * normal.y
     };
     return r;
 }
 
-void checkBoundaries() {
-    Ball ball = gState->ball;
-    Point2D pos = ball.pos;
-
-    if (pos.y <= 0 || pos.y + ball.radius >= SCREEN_HEIGHT) {
-        ball.dir.y *= -1;
-        gState->ball = ball;
+void set_scores_text() {
+    SDL_Color textColor = {0xFF, 0xFF, 0xFF, 0xFF};
+    char buffer[20];
+    snprintf(buffer, sizeof(buffer), "%i  :  %i", gState->p1.score, gState->p2.score);
+    SDL_Surface* surfaceMessage = TTF_RenderText_Solid(gState->font, buffer, textColor);
+    if (surfaceMessage == NULL) {
+        ERROR_EXIT("Unable to render text surface! SDL_ttf Error: %s\n", TTF_GetError());
     }
 
-    if (pos.x - ball.radius <= 0) {
-        initBall(gState);
-        initPaddles(gState);
-
-        gState->p2Score++;
-        printf("P1 Score: %i\tP2 Score: %i\n", gState->p1Score, gState->p2Score);
-    } else if (pos.x + ball.radius >= SCREEN_WIDTH) {
-        initBall(gState);
-        initPaddles(gState);
-
-        gState->p1Score++;
-        printf("P1 Score: %i\tP2 Score: %i\n", gState->p1Score, gState->p2Score);
+    // Convert surface to texture
+    SDL_Texture* message = SDL_CreateTextureFromSurface(gState->renderer, surfaceMessage);
+    if (message == NULL) {
+        ERROR_EXIT("Unable to create texture from rendered text! SDL Error: %s\n", SDL_GetError());
     }
+
+    gState->font_tex_w = surfaceMessage->w;
+    gState->font_tex_h = surfaceMessage->h;
+
+    SDL_FreeSurface(surfaceMessage);
+
+    gState->font_tex = message;
 }

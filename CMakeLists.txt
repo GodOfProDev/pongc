@@ -12,19 +12,15 @@ target_include_directories(pong PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL/i
 # Add the path to SDL2 libraries
 target_link_directories(pong PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL/lib/x64)
 
-
 # Link SDL2 libraries
-target_link_libraries(pong SDL2main SDL2 SDL2_Image)
+target_link_libraries(pong SDL2main SDL2 SDL2_Image SDL2_ttf)
 
 # Copy SDL2.dll to the output directory (for Windows)
 if(WIN32)
-    add_custom_command(TARGET pong POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL/lib/x64/SDL2.dll"
-            $<TARGET_FILE_DIR:pong>)
-
-    add_custom_command(TARGET pong POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL/lib/x64/SDL2_image.dll"
-            $<TARGET_FILE_DIR:pong>)
+    foreach(DLL IN ITEMS SDL2.dll SDL2_image.dll SDL2_ttf.dll)
+        add_custom_command(TARGET pong POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL/lib/x64/${DLL}"
+                $<TARGET_FILE_DIR:pong>)
+    endforeach()
 endif()
