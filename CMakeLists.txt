@@ -4,7 +4,9 @@ project(pong C)
 set(CMAKE_C_STANDARD 23)
 
 # Add your source files
-add_executable(pong src/main.c)
+add_executable(pong src/game.h
+        src/game.c
+        src/main.c)
 
 # Add the path to SDL2 headers
 target_include_directories(pong PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL/include)
