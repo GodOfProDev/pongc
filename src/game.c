@@ -64,7 +64,7 @@ void game_loop() {
         total_time += delta_time;
 
         handle_events(delta_time);
-        handle_player_tnput(delta_time);
+        handle_player_input(delta_time);
         update_game(delta_time, total_time);
         render();
     }
@@ -205,7 +205,7 @@ void render() {
     SDL_RenderPresent(renderer);
 }
 
-void handle_player_tnput(float dt) {
+void handle_player_input(float dt) {
     Paddle p1 = gState->p1;
     Paddle p2 = gState->p2;
 

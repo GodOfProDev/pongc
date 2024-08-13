@@ -69,7 +69,7 @@ void handle_events(float dt);
 void update_game(float dt, float total_time);
 void render();
 
-void handle_player_tnput(float dt);
+void handle_player_input(float dt);
 
 void animate_ball(float total_time);
 void set_random_dir_ball(bool is_global_state, Ball *ball);
